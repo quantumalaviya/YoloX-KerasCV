@@ -1,5 +1,6 @@
 from keras_cv.models.object_detection.object_detection_base_model import ObjectDetectionBaseModel
 import numpy as np
+import keras_cv
 
 
 DEPTH_MULTIPLIERS = {'tiny': 0.33, 's' : 0.33, 'm' : 0.67, 'l' : 1.00, 'x' : 1.33,}
@@ -417,3 +418,57 @@ class YoloX(ObjectDetectionBaseModel):
         predictions = super().predict(x, **kwargs)
         predictions = self.decode_predictions(x, predictions)
         return predictions
+
+def _parse_backbone(backbone, include_rescaling, backbone_weights, depth_multiplier=1.0, width_multiplier=1.0, use_depthwise=False):
+    if isinstance(backbone, str) and include_rescaling is None:
+        raise ValueError(
+            "When using a preconfigured backbone, please do provide a "
+            "`include_rescaling` parameter.  `include_rescaling` is passed to the "
+            "Keras application constructor for the provided backbone.  When "
+            "`include_rescaling=True`, image inputs are passed through a "
+            "`layers.Rescaling(1/255.0)` layer. When `include_rescaling=False`, no "
+            "downscaling is performed. "
+            f"Received backbone={backbone}, include_rescaling={include_rescaling}."
+        )
+
+    if isinstance(backbone, str):
+        if backbone == "cspdarknet":
+            return _cspdarknet_backbone(include_rescaling, backbone_weights, depth_multiplier, width_multiplier, use_depthwise)
+        else:
+            raise ValueError(
+                "backbone expected to be one of ['cspdarknet', keras.Model]. "
+                f"Received backbone={backbone}."
+            )
+    if include_rescaling or backbone_weights:
+        raise ValueError(
+            "When a custom backbone is used, include_rescaling and "
+            f"backbone_weights are not supported.  Received backbone={backbone}, "
+            f"include_rescaling={include_rescaling}, and "
+            f"backbone_weights={backbone_weights}."
+        )
+    if not isinstance(backbone, keras.Model):
+        raise ValueError(
+            "Custom backbones should be subclasses of a keras.Model. "
+            f"Received backbone={backbone}."
+        )
+    return backbone
+
+def _cspdarknet_backbone(include_rescaling, backbone_weights, depth_multiplier, width_multiplier, use_depthwise):
+    inputs = keras.layers.Input(shape=(None, None, 3))
+    x = inputs
+
+    backbone = keras_cv.models.CSPDarkNet(
+        include_rescaling=include_rescaling,
+        include_top=False,
+        weights=backbone_weights,
+        depth_multiplier=depth_multiplier,
+        width_multiplier=width_multiplier,
+        use_depthwise=use_depthwise,
+        input_tensor=x
+    )
+
+    c3_output, c4_output, c5_output = [
+        backbone.get_layer(layer_name).output
+        for layer_name in ["dark3_csp", "dark4_csp", "dark5_csp"]
+    ]
+    return keras.Model(inputs=inputs, outputs=[c3_output, c4_output, c5_output])
