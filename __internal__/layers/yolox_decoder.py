@@ -1,6 +1,7 @@
 import keras_cv.layers as cv_layers
 import tensorflow as tf
 from keras_cv import bounding_box
+from tensorflow import keras
 
 
 class DecodePredictions(keras.layers.Layer):
