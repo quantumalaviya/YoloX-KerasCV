@@ -1,8 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras import layers
 
-from keras_cv import bounding_box
-
 
 class YoloXLabelEncoder(layers.Layer):
     """Transforms the raw labels into targets for training.

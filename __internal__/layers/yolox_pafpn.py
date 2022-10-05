@@ -1,9 +1,11 @@
 import tensorflow as tf
+from keras_cv.models.__internal__.darknet_utils import (
+    CrossStagePartial,
+    DarknetConvBlock,
+    DarknetConvBlockDepthwise,
+)
 from tensorflow import keras
 
-from keras_cv.models.__internal__.darknet_utils import CrossStagePartial
-from keras_cv.models.__internal__.darknet_utils import DarknetConvBlock
-from keras_cv.models.__internal__.darknet_utils import DarknetConvBlockDepthwise
 
 class YoloXPAFPN(keras.layers.Layer):
     def __init__(
@@ -21,10 +23,10 @@ class YoloXPAFPN(keras.layers.Layer):
         ConvBlock = DarknetConvBlockDepthwise if use_depthwise else DarknetConvBlock
 
         self.lateral_conv0 = DarknetConvBlock(
-            filters=int(in_channels[1] * width_multiplier), 
+            filters=int(in_channels[1] * width_multiplier),
             kernel_size=1,
             strides=1,
-            activation=activation
+            activation=activation,
         )
         self.C3_p4 = CrossStagePartial(
             filters=int(in_channels[1] * width_multiplier),
@@ -35,10 +37,10 @@ class YoloXPAFPN(keras.layers.Layer):
         )
 
         self.reduce_conv1 = DarknetConvBlock(
-            filters=int(in_channels[0] * width_multiplier), 
+            filters=int(in_channels[0] * width_multiplier),
             kernel_size=1,
             strides=1,
-            activation=activation
+            activation=activation,
         )
         self.C3_p3 = CrossStagePartial(
             filters=int(in_channels[0] * width_multiplier),
@@ -52,7 +54,7 @@ class YoloXPAFPN(keras.layers.Layer):
             filters=int(in_channels[0] * width_multiplier),
             kernel_size=3,
             strides=2,
-            activation=activation
+            activation=activation,
         )
         self.C3_n3 = CrossStagePartial(
             filters=int(in_channels[1] * width_multiplier),
@@ -66,7 +68,7 @@ class YoloXPAFPN(keras.layers.Layer):
             filters=int(in_channels[1] * width_multiplier),
             kernel_size=3,
             strides=2,
-            activation=activation
+            activation=activation,
         )
         self.C3_n4 = CrossStagePartial(
             filters=int(in_channels[2] * width_multiplier),
@@ -75,7 +77,7 @@ class YoloXPAFPN(keras.layers.Layer):
             use_depthwise=use_depthwise,
             activation=activation,
         )
-        
+
         self.concat = keras.layers.Concatenate(axis=-1)
         self.upsample_2x = keras.layers.UpSampling2D(2)
 

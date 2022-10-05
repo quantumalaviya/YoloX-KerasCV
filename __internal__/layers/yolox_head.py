@@ -1,9 +1,11 @@
 import tensorflow as tf
+from keras_cv.models.__internal__.darknet_utils import (
+    CrossStagePartial,
+    DarknetConvBlock,
+    DarknetConvBlockDepthwise,
+)
 from tensorflow import keras
 
-from keras_cv.models.__internal__.darknet_utils import CrossStagePartial
-from keras_cv.models.__internal__.darknet_utils import DarknetConvBlock
-from keras_cv.models.__internal__.darknet_utils import DarknetConvBlockDepthwise
 
 class YoloXHead(keras.layers.Layer):
     def __init__(
@@ -27,7 +29,7 @@ class YoloXHead(keras.layers.Layer):
         self.objectness_preds = []
 
         ConvBlock = DarknetConvBlockDepthwise if use_depthwise else DarknetConvBlock
-        
+
         for i in range(len(in_channels)):
             self.stems.append(
                 DarknetConvBlock(
@@ -75,13 +77,13 @@ class YoloXHead(keras.layers.Layer):
                     ]
                 )
             )
- 
+
             self.classification_preds.append(
                 keras.layers.Conv2D(
                     filters=classes,
                     kernel_size=1,
                     strides=1,
-                    padding='same',
+                    padding="same",
                     bias_initializer=bias_initializer,
                 )
             )
@@ -90,7 +92,7 @@ class YoloXHead(keras.layers.Layer):
                     filters=4,
                     kernel_size=1,
                     strides=1,
-                    padding='same',
+                    padding="same",
                     bias_initializer=bias_initializer,
                 )
             )
@@ -99,7 +101,7 @@ class YoloXHead(keras.layers.Layer):
                     filters=1,
                     kernel_size=1,
                     strides=1,
-                    padding='same',
+                    padding="same",
                 )
             )
 
