@@ -3,9 +3,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras.backend as K
 from keras_cv import bounding_box
-from keras_cv.models.object_detection.object_detection_base_model import (
-    ObjectDetectionBaseModel,
-)
+from keras_cv.models.object_detection.object_detection_base_model import \
+    ObjectDetectionBaseModel
 from tensorflow import keras
 
 from __internal__.layers.yolox_decoder import DecodePredictions
@@ -87,9 +86,6 @@ class YoloX(ObjectDetectionBaseModel):
         )
         self.objectness_loss_metric = tf.keras.metrics.Mean(name="objectness_loss")
         self.box_loss_metric = tf.keras.metrics.Mean(name="box_loss")
-        self.regularization_loss_metric = tf.keras.metrics.Mean(
-            name="regularization_loss"
-        )
 
     def decode_predictions(self, x, predictions):
         # no-op if default decoder is used.
@@ -232,7 +228,6 @@ class YoloX(ObjectDetectionBaseModel):
             gt_bboxes_per_image, bboxes_preds_per_image, self.bounding_box_format
         )
         pair_wise_ious_loss = -tf.log(pair_wise_ious + 1e-8)
-
         gt_cls_per_image = tf.tile(
             tf.expand_dims(tf.one_hot(tf.cast(gt_classes, tf.int32), num_classes), 1),
             (1, num_in_boxes_anchor, 1),
@@ -357,11 +352,13 @@ class YoloX(ObjectDetectionBaseModel):
 
         return fg_mask, is_in_boxes_and_center
 
-    def dynamic_k_matching(self, cost, pair_wise_ious, fg_mask, gt_classes, num_gt):
+    def dynamic_k_matching(cost, pair_wise_ious, fg_mask, gt_classes, num_gt):
         matching_matrix = tf.zeros_like(cost)
+
         n_candidate_k = tf.minimum(10, tf.shape(pair_wise_ious)[1])
         topk_ious, _ = tf.nn.top_k(pair_wise_ious, n_candidate_k)
         dynamic_ks = tf.maximum(tf.reduce_sum(topk_ious, 1), 1)
+        # dynamic_ks              = tf.Print(dynamic_ks, [topk_ious, dynamic_ks], summarize = 100)
 
         def loop_body_1(b, matching_matrix):
             _, pos_idx = tf.nn.top_k(-cost[b], k=tf.cast(dynamic_ks[b], tf.int32))
@@ -451,6 +448,11 @@ class YoloX(ObjectDetectionBaseModel):
                     "parameter match your losses `classes` parameter?"
                 )
 
+        x_shifts = []
+        y_shifts = []
+        expanded_strides = []
+        outputs = []
+
         for i in range(num_levels):
             output = y_pred[i]
 
@@ -485,31 +487,33 @@ class YoloX(ObjectDetectionBaseModel):
         obj_preds = outputs[:, :, 4:5]
         cls_preds = outputs[:, :, 5:]
 
-        num_labels = tf.reduce_sum(tf.cast(tf.reduce_sum(y_true, -1) > 0, tf.int32), -1)
-        total_num_anchors = outputs.shape[1]
+        nlabel = tf.reduce_sum(
+            tf.cast(tf.reduce_sum(y_true, -1) > 0, K.dtype(outputs)), -1
+        )
+        total_num_anchors = tf.shape(outputs)[1]
 
         num_fg = 0.0
         loss_obj = 0.0
         loss_cls = 0.0
         loss_iou = 0.0
-        batch_size = tf.shape(outputs[0])
 
-        for b in range(batch_size):
-            num_gt = tf.cast(num_labels[b], tf.int32)
-
+        def loop_body(b, num_fg, loss_iou, loss_obj, loss_cls):
+            num_gt = tf.cast(nlabel[b], tf.int32)
             gt_bboxes_per_image = y_true[b][:num_gt, :4]
             gt_classes = y_true[b][:num_gt, 4]
             bboxes_preds_per_image = bbox_preds[b]
             obj_preds_per_image = obj_preds[b]
             cls_preds_per_image = cls_preds[b]
 
-            if num_gt == 0:
+            def f1():
                 num_fg_img = tf.cast(tf.constant(0), K.dtype(outputs))
                 cls_target = tf.cast(tf.zeros((0, self.classes)), K.dtype(outputs))
                 reg_target = tf.cast(tf.zeros((0, 4)), K.dtype(outputs))
                 obj_target = tf.cast(tf.zeros((total_num_anchors, 1)), K.dtype(outputs))
                 fg_mask = tf.cast(tf.zeros(total_num_anchors), tf.bool)
-            else:
+                return num_fg_img, cls_target, reg_target, obj_target, fg_mask
+
+            def f2():
                 (
                     gt_matched_classes,
                     fg_mask,
@@ -541,7 +545,11 @@ class YoloX(ObjectDetectionBaseModel):
                     K.dtype(outputs),
                 )
                 obj_target = tf.cast(tf.expand_dims(fg_mask, -1), K.dtype(outputs))
+                return num_fg_img, cls_target, reg_target, obj_target, fg_mask
 
+            num_fg_img, cls_target, reg_target, obj_target, fg_mask = tf.cond(
+                tf.equal(num_gt, 0), f1, f2
+            )
             num_fg += num_fg_img
             loss_iou += tf.math.reduce_sum(
                 1
@@ -559,22 +567,26 @@ class YoloX(ObjectDetectionBaseModel):
                     from_logits=True,
                 )
             )
+            return b + 1, num_fg, loss_iou, loss_obj, loss_cls
+
+        _, num_fg, loss_iou, loss_obj, loss_cls = tf.while_loop(
+            lambda b, *args: b < tf.cast(tf.shape(outputs)[0], tf.int32),
+            loop_body,
+            [0, num_fg, loss_iou, loss_obj, loss_cls],
+        )
 
         self.classification_loss_metric.update_state(loss_cls)
         self.box_loss_metric.update_state(loss_iou)
-        self.regularization_loss_metric.update_state(regularization_loss)
+        self.objectness_loss_metric.update_state(loss_obj)
 
         num_fg = tf.cast(tf.maximum(num_fg, 1), K.dtype(outputs))
-        regularization_loss = 0.0
-        for loss in self.losses:
-            regularization_loss += tf.nn.scale_regularization_loss(loss)
-        loss = loss_iou + loss_obj + loss_cls + regularization_loss
+        reg_weight = 5.0
+        loss = reg_weight * loss_iou + loss_obj + loss_cls
 
         return loss / num_fg
 
     def _backward(self, y_true, y_pred, input_shape):
         loss = self.compute_losses(y_true, y_pred, input_shape=input_shape)
-
         self.loss_metric.update_state(loss)
         return loss
 

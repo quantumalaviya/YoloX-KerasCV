@@ -1,8 +1,6 @@
 import tensorflow as tf
 from keras_cv.models.__internal__.darknet_utils import (
-    DarknetConvBlock,
-    DarknetConvBlockDepthwise,
-)
+    DarknetConvBlock, DarknetConvBlockDepthwise)
 from tensorflow import keras
 
 

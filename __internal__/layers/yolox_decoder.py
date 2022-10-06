@@ -36,7 +36,6 @@ class DecodePredictions(keras.layers.Layer):
         self.built = True
 
     def call(self, images, predictions):
-        print("traced")
         image_shape = tf.cast(tf.shape(images), dtype=tf.float32)[1:-1]
         # predictions = tf.cast(predictions, dtype=tf.float32)
 
