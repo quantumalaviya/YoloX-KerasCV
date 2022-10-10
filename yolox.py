@@ -227,7 +227,7 @@ class YoloX(ObjectDetectionBaseModel):
         pair_wise_ious = bounding_box.compute_iou(
             gt_bboxes_per_image, bboxes_preds_per_image, self.bounding_box_format
         )
-        pair_wise_ious_loss = -tf.log(pair_wise_ious + 1e-8)
+        pair_wise_ious_loss = -tf.math.log(pair_wise_ious + 1e-8)
         gt_cls_per_image = tf.tile(
             tf.expand_dims(tf.one_hot(tf.cast(gt_classes, tf.int32), num_classes), 1),
             (1, num_in_boxes_anchor, 1),
@@ -352,13 +352,12 @@ class YoloX(ObjectDetectionBaseModel):
 
         return fg_mask, is_in_boxes_and_center
 
-    def dynamic_k_matching(cost, pair_wise_ious, fg_mask, gt_classes, num_gt):
+    def dynamic_k_matching(self, cost, pair_wise_ious, fg_mask, gt_classes, num_gt):
         matching_matrix = tf.zeros_like(cost)
 
         n_candidate_k = tf.minimum(10, tf.shape(pair_wise_ious)[1])
         topk_ious, _ = tf.nn.top_k(pair_wise_ious, n_candidate_k)
         dynamic_ks = tf.maximum(tf.reduce_sum(topk_ious, 1), 1)
-        # dynamic_ks              = tf.Print(dynamic_ks, [topk_ious, dynamic_ks], summarize = 100)
 
         def loop_body_1(b, matching_matrix):
             _, pos_idx = tf.nn.top_k(-cost[b], k=tf.cast(dynamic_ks[b], tf.int32))
@@ -505,6 +504,11 @@ class YoloX(ObjectDetectionBaseModel):
             obj_preds_per_image = obj_preds[b]
             cls_preds_per_image = cls_preds[b]
 
+            gt_bboxes_per_image = tf.ensure_shape(gt_bboxes_per_image, [None, 4])
+            bboxes_preds_per_image = tf.ensure_shape(bboxes_preds_per_image, [None, 4])
+            obj_preds_per_image = tf.ensure_shape(obj_preds_per_image, [None, 1])
+            cls_preds_per_image = tf.ensure_shape(cls_preds_per_image, [None, self.classes])
+
             def f1():
                 num_fg_img = tf.cast(tf.constant(0), K.dtype(outputs))
                 cls_target = tf.cast(tf.zeros((0, self.classes)), K.dtype(outputs))
@@ -552,19 +556,17 @@ class YoloX(ObjectDetectionBaseModel):
             )
             num_fg += num_fg_img
             loss_iou += tf.math.reduce_sum(
-                1
-                - self.box_loss(
+                self.box_loss(
                     reg_target, tf.boolean_mask(bboxes_preds_per_image, fg_mask)
                 )
             )
             loss_obj += tf.math.reduce_sum(
-                self.objectness_loss(obj_target, obj_preds_per_image, from_logits=True)
+                self.objectness_loss(obj_target, obj_preds_per_image)
             )
             loss_cls += tf.math.reduce_sum(
                 self.classification_loss(
                     cls_target,
-                    tf.boolean_mask(cls_preds_per_image, fg_mask),
-                    from_logits=True,
+                    tf.boolean_mask(cls_preds_per_image, fg_mask)
                 )
             )
             return b + 1, num_fg, loss_iou, loss_obj, loss_cls
@@ -583,7 +585,7 @@ class YoloX(ObjectDetectionBaseModel):
         reg_weight = 5.0
         loss = reg_weight * loss_iou + loss_obj + loss_cls
 
-        return loss / num_fg
+        return loss
 
     def _backward(self, y_true, y_pred, input_shape):
         loss = self.compute_losses(y_true, y_pred, input_shape=input_shape)
@@ -625,7 +627,7 @@ class YoloX(ObjectDetectionBaseModel):
         x, y = data
         y_for_metrics, y_training_target = y
         y_pred = self(x, training=False)
-        _ = self._backward(y_training_target, y_pred)
+        _ = self._backward(y_training_target, y_pred, input_shape=x.shape[1:3])
 
         predictions = self.decode_predictions(x, y_pred)
         self._update_metrics(y_for_metrics, predictions)
