@@ -70,13 +70,13 @@ class DecodePredictions(keras.layers.Layer):
             (predictions[..., :2] + grids) * strides / image_shape, axis=-2
         )
         box_xy = tf.broadcast_to(
-            box_xy, [batch_size, predictions.shape[1], self.classes, 2]
+            box_xy, [batch_size, tf.shape(predictions)[1], self.classes, 2]
         )
         box_wh = tf.expand_dims(
             tf.exp(predictions[..., 2:4]) * strides / image_shape, axis=-2
         )
         box_wh = tf.broadcast_to(
-            box_wh, [batch_size, predictions.shape[1], self.classes, 2]
+            box_wh, [batch_size, tf.shape(predictions)[1], self.classes, 2]
         )
 
         box_confidence = tf.math.sigmoid(predictions[..., 4:5])
