@@ -85,7 +85,7 @@ class DecodePredictions(keras.layers.Layer):
         # create and broadcast classes for every box before nms
         box_classes = tf.expand_dims(tf.range(self.classes, dtype=tf.float32), axis=-1)
         box_classes = tf.broadcast_to(
-            box_classes, [batch_size, predictions.shape[1], self.classes, 1]
+            box_classes, [batch_size, tf.shape(predictions)[1], self.classes, 1]
         )
 
         box_scores = tf.expand_dims(box_confidence * box_class_probs, axis=-1)
