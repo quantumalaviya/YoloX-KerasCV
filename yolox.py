@@ -599,7 +599,7 @@ class YoloX(ObjectDetectionBaseModel):
         y_training_target = bounding_box.convert_format(
             y_training_target,
             source=self.bounding_box_format,
-            target="xywh",
+            target="rel_xywh",
             images=x,
         )
 
