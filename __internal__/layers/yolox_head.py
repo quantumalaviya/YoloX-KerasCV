@@ -27,7 +27,7 @@ class YoloXHead(keras.layers.Layer):
 
         ConvBlock = DarknetConvBlockDepthwise if use_depthwise else DarknetConvBlock
 
-        for i in range(len(in_channels)):
+        for _ in range(len(in_channels)):
             self.stems.append(
                 DarknetConvBlock(
                     filters=int(256 * width_multiplier),
@@ -113,8 +113,7 @@ class YoloXHead(keras.layers.Layer):
 
             boxes = self.regression_convs[i](stem)
             boxes = self.regression_preds[i](boxes)
-
-            objectness = self.objectness_preds[i](stem)
+            objectness = self.objectness_preds[i](boxes)
 
             output = tf.keras.layers.Concatenate(axis=-1)([boxes, objectness, classes])
             outputs.append(output)
