@@ -74,9 +74,12 @@ class YoloX(ObjectDetectionBaseModel):
             classes=classes,
         )
 
-        self.feature_pyramid = feature_pyramid or YoloXPAFPN()
+        self.feature_pyramid = feature_pyramid or YoloXPAFPN(
+            depth_multiplier=self.depth_multiplier,
+            width_multiplier=self.width_multiplier
+        )
         bias_initializer = tf.constant_initializer(-np.log((1 - 0.01) / 0.01))
-        self.yolox_head = YoloXHead(classes, bias_initializer)
+        self.yolox_head = YoloXHead(classes, bias_initializer, width_multiplier=self.width_multiplier)
 
         self._metrics_bounding_box_format = None
         self.loss_metric = tf.keras.metrics.Mean(name="loss")
@@ -134,6 +137,7 @@ class YoloX(ObjectDetectionBaseModel):
                     "`objectness_loss.from_logits="
                     f"{objectness_loss.from_logits}`"
                 )
+        '''
         if hasattr(box_loss, "bounding_box_format"):
             if box_loss.bounding_box_format != self.bounding_box_format:
                 raise ValueError(
@@ -142,7 +146,7 @@ class YoloX(ObjectDetectionBaseModel):
                     f"Got `box_loss.bounding_box_format={box_loss.bounding_box_format}`, "
                     f"want `box_loss.bounding_box_format={self.bounding_box_format}`"
                 )
-
+        '''
         if len(metrics) != 0:
             self._metrics_bounding_box_format = metrics[0].bounding_box_format
         else:
@@ -178,7 +182,6 @@ class YoloX(ObjectDetectionBaseModel):
     def call(self, x, training=False):
         backbone_outputs = self.backbone(x, training=training)
         features = self.feature_pyramid(backbone_outputs)
-
         return self.yolox_head(features)
 
     def _update_metrics(self, y_true, y_pred):
@@ -476,7 +479,12 @@ class YoloX(ObjectDetectionBaseModel):
             y_shifts.append(grid[..., 1])
             expanded_strides.append(tf.ones_like(grid[..., 0]) * stride)
             outputs.append(output)
-
+        
+        '''tf.print("head_post_out")
+        tf.print(outputs[0].shape, tf.math.reduce_min(outputs[0]), tf.math.reduce_max(outputs[0]))
+        tf.print(outputs[1].shape, tf.math.reduce_min(outputs[1]), tf.math.reduce_max(outputs[1]))
+        tf.print(outputs[2].shape, tf.math.reduce_min(outputs[2]), tf.math.reduce_max(outputs[2]))'''
+        
         x_shifts = tf.concat(x_shifts, 1)
         y_shifts = tf.concat(y_shifts, 1)
         expanded_strides = tf.concat(expanded_strides, 1)
@@ -581,6 +589,10 @@ class YoloX(ObjectDetectionBaseModel):
         self.box_loss_metric.update_state(loss_iou)
         self.objectness_loss_metric.update_state(loss_obj)
 
+        '''tf.print("loss cls", loss_cls/ num_fg)
+        tf.print("loss iou", loss_iou/ num_fg)
+        tf.print("loss obj", loss_obj/ num_fg)'''
+
         num_fg = tf.cast(tf.maximum(num_fg, 1), K.dtype(outputs))
         reg_weight = 5.0
         loss = reg_weight * loss_iou + loss_obj + loss_cls
@@ -599,7 +611,7 @@ class YoloX(ObjectDetectionBaseModel):
         y_training_target = bounding_box.convert_format(
             y_training_target,
             source=self.bounding_box_format,
-            target="rel_xywh",
+            target="center_xywh",
             images=x,
         )
 

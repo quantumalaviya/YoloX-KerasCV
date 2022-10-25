@@ -21,7 +21,7 @@ class DecodePredictions(keras.layers.Layer):
         self.suppression_layer = suppression_layer or cv_layers.NonMaxSuppression(
             classes=classes,
             bounding_box_format=bounding_box_format,
-            confidence_threshold=0.0,
+            confidence_threshold=0.01,
             iou_threshold=0.5,
             max_detections=100,
             max_detections_per_class=100,
@@ -92,6 +92,15 @@ class DecodePredictions(keras.layers.Layer):
 
         outputs = tf.concat([box_xy, box_wh, box_classes, box_scores], axis=-1)
         outputs = tf.reshape(outputs, [batch_size, -1, 6])
+
+        # this conversion is rel_center_xywh to rel_xywh
+        # small workaround because rel_center_xywh isn't supported yet
+        outputs = bounding_box.convert_format(
+            outputs,
+            source="center_xywh",
+            target="xywh",
+            images=images,
+        )
 
         outputs = bounding_box.convert_format(
             outputs,

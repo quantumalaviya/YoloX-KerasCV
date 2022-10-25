@@ -111,11 +111,10 @@ class YoloXHead(keras.layers.Layer):
             classes = self.classification_convs[i](stem)
             classes = self.classification_preds[i](classes)
 
-            boxes = self.regression_convs[i](stem)
-            boxes = self.regression_preds[i](boxes)
-            objectness = self.objectness_preds[i](boxes)
+            boxes_feat = self.regression_convs[i](stem)
+            boxes = self.regression_preds[i](boxes_feat)
+            objectness = self.objectness_preds[i](boxes_feat)
 
             output = tf.keras.layers.Concatenate(axis=-1)([boxes, objectness, classes])
             outputs.append(output)
-
         return outputs
