@@ -544,7 +544,7 @@ class YoloX(ObjectDetectionBaseModel):
 
         def loop_body(b, num_fg, loss_iou, loss_obj, loss_cls):
             num_gt = tf.cast(nlabel[b], tf.int32)
-            
+
             gt_bboxes_per_image = y_true[b][:num_gt, :4]
             gt_classes = y_true[b][:num_gt, 4]
 
@@ -613,6 +613,7 @@ class YoloX(ObjectDetectionBaseModel):
                 self.box_loss(
                     reg_target, tf.boolean_mask(bboxes_preds_per_image, fg_mask)
                 )
+            )
             loss_obj += tf.math.reduce_sum(
                 self.objectness_loss(obj_target, obj_preds_per_image)
             )
