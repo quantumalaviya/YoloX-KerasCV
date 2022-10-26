@@ -78,7 +78,7 @@ class YoloX(ObjectDetectionBaseModel):
             depth_multiplier=self.depth_multiplier,
             width_multiplier=self.width_multiplier
         )
-        bias_initializer = tf.constant_initializer(-np.log((1 - 0.01) / 0.01))
+        bias_initializer = None
         self.yolox_head = YoloXHead(classes, bias_initializer, width_multiplier=self.width_multiplier)
 
         self._metrics_bounding_box_format = None
@@ -219,16 +219,19 @@ class YoloX(ObjectDetectionBaseModel):
             num_gt,
             total_num_anchors,
         )
-
         bboxes_preds_per_image = tf.boolean_mask(
             bboxes_preds_per_image, fg_mask, axis=0
         )
         obj_preds_ = tf.boolean_mask(obj_preds_per_image, fg_mask, axis=0)
         cls_preds_ = tf.boolean_mask(cls_preds_per_image, fg_mask, axis=0)
         num_in_boxes_anchor = tf.shape(bboxes_preds_per_image)[0]
+        
+        tf.debugging.assert_equal(tf.shape(obj_preds_), [tf.math.count_nonzero(fg_mask, dtype=tf.int32), 1])
+        tf.debugging.assert_equal(tf.shape(bboxes_preds_per_image), [tf.math.count_nonzero(fg_mask, dtype=tf.int32), 4])
+        tf.debugging.assert_equal(tf.shape(cls_preds_), [tf.math.count_nonzero(fg_mask, dtype=tf.int32), self.classes])
 
         pair_wise_ious = bounding_box.compute_iou(
-            gt_bboxes_per_image, bboxes_preds_per_image, self.bounding_box_format
+            gt_bboxes_per_image, bboxes_preds_per_image, "center_xywh"
         )
         pair_wise_ious_loss = -tf.math.log(pair_wise_ious + 1e-8)
         gt_cls_per_image = tf.tile(
@@ -242,6 +245,11 @@ class YoloX(ObjectDetectionBaseModel):
         pair_wise_cls_loss = tf.reduce_sum(
             K.binary_crossentropy(gt_cls_per_image, tf.sqrt(cls_preds_)), -1
         )
+
+        tf.debugging.assert_equal(tf.shape(pair_wise_ious), [num_gt, tf.math.count_nonzero(fg_mask, dtype=tf.int32)])
+        tf.debugging.assert_equal(tf.shape(cls_preds_), [num_gt, tf.math.count_nonzero(fg_mask, dtype=tf.int32), self.classes])
+        tf.debugging.assert_equal(tf.shape(gt_cls_per_image), [num_gt, tf.math.count_nonzero(fg_mask, dtype=tf.int32), self.classes])
+        tf.debugging.assert_equal(tf.shape(pair_wise_cls_loss), [num_gt, tf.math.count_nonzero(fg_mask, dtype=tf.int32)])
 
         cost = (
             pair_wise_cls_loss
@@ -284,6 +292,10 @@ class YoloX(ObjectDetectionBaseModel):
             tf.expand_dims(((y_shifts[0] + 0.5) * expanded_strides_per_image), 0),
             [num_gt, 1],
         )
+        
+        tf.debugging.assert_equal(tf.shape(expanded_strides_per_image), [5376])
+        tf.debugging.assert_equal(tf.shape(x_centers_per_image), [num_gt, 5376])
+        tf.debugging.assert_equal(tf.shape(y_centers_per_image), [num_gt, 5376])
 
         gt_bboxes_per_image_l = tf.tile(
             tf.expand_dims(
@@ -310,6 +322,11 @@ class YoloX(ObjectDetectionBaseModel):
             [1, total_num_anchors],
         )
 
+        tf.debugging.assert_equal(tf.shape(gt_bboxes_per_image_l), [num_gt, 5376])
+        tf.debugging.assert_equal(tf.shape(gt_bboxes_per_image_r), [num_gt, 5376])
+        tf.debugging.assert_equal(tf.shape(gt_bboxes_per_image_t), [num_gt, 5376])
+        tf.debugging.assert_equal(tf.shape(gt_bboxes_per_image_b), [num_gt, 5376])
+
         b_l = x_centers_per_image - gt_bboxes_per_image_l
         b_r = gt_bboxes_per_image_r - x_centers_per_image
         b_t = y_centers_per_image - gt_bboxes_per_image_t
@@ -321,6 +338,10 @@ class YoloX(ObjectDetectionBaseModel):
             tf.reduce_sum(tf.cast(is_in_boxes, K.dtype(gt_bboxes_per_image)), axis=0)
             > 0.0
         )
+
+        tf.debugging.assert_equal(tf.shape(bbox_deltas), [num_gt, 5376, 4])
+        tf.debugging.assert_equal(tf.shape(is_in_boxes), [num_gt, 5376])
+        tf.debugging.assert_equal(tf.shape(is_in_boxes_all), [5376])
 
         gt_bboxes_per_image_l = tf.tile(
             tf.expand_dims(gt_bboxes_per_image[:, 0], 1), [1, total_num_anchors]
@@ -346,21 +367,33 @@ class YoloX(ObjectDetectionBaseModel):
             tf.reduce_sum(tf.cast(is_in_centers, K.dtype(gt_bboxes_per_image)), axis=0)
             > 0.0
         )
+        tf.debugging.assert_equal(tf.shape(center_deltas), [num_gt, 5376, 4])
+        tf.debugging.assert_equal(tf.shape(is_in_centers), [num_gt, 5376])
+        tf.debugging.assert_equal(tf.shape(is_in_centers_all), [5376])
 
         fg_mask = tf.cast(is_in_boxes_all | is_in_centers_all, tf.bool)
 
         is_in_boxes_and_center = tf.boolean_mask(
             is_in_boxes, fg_mask, axis=1
         ) & tf.boolean_mask(is_in_centers, fg_mask, axis=1)
+        
+        tf.debugging.assert_equal(tf.shape(fg_mask), [5376])
+        tf.debugging.assert_equal(tf.shape(is_in_boxes_and_center), [num_gt, tf.math.count_nonzero(fg_mask, dtype=tf.int32)])
 
         return fg_mask, is_in_boxes_and_center
 
     def dynamic_k_matching(self, cost, pair_wise_ious, fg_mask, gt_classes, num_gt):
         matching_matrix = tf.zeros_like(cost)
 
+        tf.debugging.assert_equal(tf.shape(matching_matrix), [num_gt, tf.math.count_nonzero(fg_mask, dtype=tf.int32)])
+        tf.debugging.assert_equal(tf.shape(cost), [num_gt, tf.math.count_nonzero(fg_mask, dtype=tf.int32)])
+
         n_candidate_k = tf.minimum(10, tf.shape(pair_wise_ious)[1])
         topk_ious, _ = tf.nn.top_k(pair_wise_ious, n_candidate_k)
         dynamic_ks = tf.maximum(tf.reduce_sum(topk_ious, 1), 1)
+
+        tf.debugging.assert_equal(tf.shape(topk_ious), [num_gt, n_candidate_k])
+        tf.debugging.assert_equal(tf.shape(dynamic_ks), [num_gt])
 
         def loop_body_1(b, matching_matrix):
             _, pos_idx = tf.nn.top_k(-cost[b], k=tf.cast(dynamic_ks[b], tf.int32))
@@ -383,6 +416,9 @@ class YoloX(ObjectDetectionBaseModel):
         )
 
         anchor_matching_gt = tf.reduce_sum(matching_matrix, 0)
+        
+        tf.debugging.assert_equal(tf.shape(anchor_matching_gt), [tf.math.count_nonzero(fg_mask, dtype=tf.int32)])
+    
         biger_one_indice = tf.reshape(tf.where(anchor_matching_gt > 1), [-1])
 
         def loop_body_2(b, matching_matrix):
@@ -406,7 +442,9 @@ class YoloX(ObjectDetectionBaseModel):
 
         fg_mask_inboxes = tf.reduce_sum(matching_matrix, 0) > 0.0
         num_fg = tf.reduce_sum(tf.cast(fg_mask_inboxes, K.dtype(cost)))
-
+        
+        tf.debugging.assert_equal(tf.shape(fg_mask_inboxes), [tf.math.count_nonzero(fg_mask, dtype=tf.int32)])
+    
         fg_mask_indices = tf.reshape(tf.where(fg_mask), [-1])
         fg_mask_inboxes_indices = tf.reshape(tf.where(fg_mask_inboxes), [-1, 1])
         fg_mask_select_indices = tf.gather_nd(fg_mask_indices, fg_mask_inboxes_indices)
@@ -480,15 +518,15 @@ class YoloX(ObjectDetectionBaseModel):
             expanded_strides.append(tf.ones_like(grid[..., 0]) * stride)
             outputs.append(output)
         
-        '''tf.print("head_post_out")
-        tf.print(outputs[0].shape, tf.math.reduce_min(outputs[0]), tf.math.reduce_max(outputs[0]))
-        tf.print(outputs[1].shape, tf.math.reduce_min(outputs[1]), tf.math.reduce_max(outputs[1]))
-        tf.print(outputs[2].shape, tf.math.reduce_min(outputs[2]), tf.math.reduce_max(outputs[2]))'''
-        
         x_shifts = tf.concat(x_shifts, 1)
         y_shifts = tf.concat(y_shifts, 1)
         expanded_strides = tf.concat(expanded_strides, 1)
         outputs = tf.concat(outputs, 1)
+
+        tf.debugging.assert_equal(tf.shape(x_shifts), [1, 5376])
+        tf.debugging.assert_equal(tf.shape(y_shifts), [1, 5376])
+        tf.debugging.assert_equal(tf.shape(expanded_strides), [1, 5376])
+        tf.debugging.assert_equal(tf.shape(outputs), [tf.shape(y_true)[0], 5376, 25])
 
         bbox_preds = outputs[:, :, :4]
         obj_preds = outputs[:, :, 4:5]
@@ -506,11 +544,19 @@ class YoloX(ObjectDetectionBaseModel):
 
         def loop_body(b, num_fg, loss_iou, loss_obj, loss_cls):
             num_gt = tf.cast(nlabel[b], tf.int32)
+            
             gt_bboxes_per_image = y_true[b][:num_gt, :4]
             gt_classes = y_true[b][:num_gt, 4]
+
             bboxes_preds_per_image = bbox_preds[b]
             obj_preds_per_image = obj_preds[b]
             cls_preds_per_image = cls_preds[b]
+            
+            tf.debugging.assert_equal(tf.shape(gt_bboxes_per_image), [num_gt, 4])
+            tf.debugging.assert_equal(tf.shape(gt_classes), [num_gt])
+            tf.debugging.assert_equal(tf.shape(bboxes_preds_per_image), [5376, 4])
+            tf.debugging.assert_equal(tf.shape(obj_preds_per_image), [5376, 1])
+            tf.debugging.assert_equal(tf.shape(cls_preds_per_image), [5376, 20])
 
             gt_bboxes_per_image = tf.ensure_shape(gt_bboxes_per_image, [None, 4])
             bboxes_preds_per_image = tf.ensure_shape(bboxes_preds_per_image, [None, 4])
@@ -567,7 +613,6 @@ class YoloX(ObjectDetectionBaseModel):
                 self.box_loss(
                     reg_target, tf.boolean_mask(bboxes_preds_per_image, fg_mask)
                 )
-            )
             loss_obj += tf.math.reduce_sum(
                 self.objectness_loss(obj_target, obj_preds_per_image)
             )
@@ -585,19 +630,15 @@ class YoloX(ObjectDetectionBaseModel):
             [0, num_fg, loss_iou, loss_obj, loss_cls],
         )
 
-        self.classification_loss_metric.update_state(loss_cls)
-        self.box_loss_metric.update_state(loss_iou)
-        self.objectness_loss_metric.update_state(loss_obj)
-
-        '''tf.print("loss cls", loss_cls/ num_fg)
-        tf.print("loss iou", loss_iou/ num_fg)
-        tf.print("loss obj", loss_obj/ num_fg)'''
+        self.classification_loss_metric.update_state(loss_cls/num_fg)
+        self.box_loss_metric.update_state(loss_iou/num_fg)
+        self.objectness_loss_metric.update_state(loss_obj/num_fg)
 
         num_fg = tf.cast(tf.maximum(num_fg, 1), K.dtype(outputs))
         reg_weight = 5.0
         loss = reg_weight * loss_iou + loss_obj + loss_cls
 
-        return loss
+        return loss / num_fg
 
     def _backward(self, y_true, y_pred, input_shape):
         loss = self.compute_losses(y_true, y_pred, input_shape=input_shape)
