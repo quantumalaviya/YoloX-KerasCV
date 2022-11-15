@@ -1,3 +1,3 @@
 # YoloX-KerasCV
 
-Work in progress
+[Outdated] YoloX is currently in the progress of being added to KerasCV.
